@@ -3,3 +3,14 @@ pandas
 presidio-analyzer
 presidio-anonymizer
 spacy
+
+# Direct wheel URL for the small spaCy English model — needed because
+# Streamlit Community Cloud only runs `pip install -r requirements.txt`
+# during setup, not arbitrary shell commands like
+# `python -m spacy download`. This is the standard way to include a
+# spaCy model for cloud deployment. Kept smaller than en_core_web_lg
+# (used locally) to stay safely under Community Cloud's free-tier
+# memory limit (~2.7GB max) — see backend/redactor.py for the
+# lg-then-sm fallback logic that makes this work automatically in
+# both environments.
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
