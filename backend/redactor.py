@@ -140,16 +140,53 @@ def _is_false_positive(entity, text: str) -> bool:
     return False
 
 
+def _resolve_overlaps(entities):
+    """When multiple recognizers match the same or overlapping text
+    span with different entity types (e.g. a bare 9-digit number
+    simultaneously matching BANK_ACCOUNT_NUMBER, DATE_TIME,
+    US_PASSPORT, and US_DRIVER_LICENSE all at once), keep only the
+    single highest-scoring match per span and discard the rest.
+
+    Presidio's own AnonymizerEngine already effectively does this when
+    it applies replacements to text — that's why the redacted OUTPUT
+    text was already coming out clean even before this existed. But it
+    doesn't change the returned entity LIST itself, which is what the
+    'Identified Entities' card and the PRI score both read — so
+    without this, they were double/triple/quadruple-counting the same
+    underlying piece of data under multiple labels.
+    """
+    if not entities:
+        return entities
+
+    # Highest-scoring match wins each overlapping cluster.
+    by_score_desc = sorted(entities, key=lambda e: e.score, reverse=True)
+    kept = []
+    for entity in by_score_desc:
+        overlaps_kept = any(
+            entity.start < k.end and entity.end > k.start
+            for k in kept
+        )
+        if not overlaps_kept:
+            kept.append(entity)
+
+    # Return in the order they appear in the text, not score order —
+    # reads naturally in the UI.
+    return sorted(kept, key=lambda e: e.start)
+
+
 def analyze_text(text: str, language: str = "en"):
-    """Run detection only — returns the raw list of RecognizerResult,
-    with known false-positive patterns already filtered out. Useful
-    when you want to show *what* was found before deciding how to
-    redact it (e.g. for the PRI score or the 'Identified Entities'
-    card in Stream A). Stream B's content-based column scanner also
-    calls this, so the same filtering benefits both streams."""
+    """Run detection only — returns the list of RecognizerResult after
+    both false-positive filtering AND overlap resolution (see
+    _resolve_overlaps above), so this is already the clean, final list
+    — one entry per actual piece of data, no duplicates. Useful when
+    you want to show *what* was found before deciding how to redact it
+    (e.g. for the PRI score or the 'Identified Entities' card in
+    Stream A). Stream B's content-based column scanner also calls
+    this, so the same filtering benefits both streams."""
     analyzer, _ = get_engines()
     results = analyzer.analyze(text=text, language=language)
-    return [e for e in results if not _is_false_positive(e, text)]
+    filtered = [e for e in results if not _is_false_positive(e, text)]
+    return _resolve_overlaps(filtered)
 
 
 def redact_text(text: str, language: str = "en"):
