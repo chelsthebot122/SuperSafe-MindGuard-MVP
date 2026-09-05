@@ -672,18 +672,18 @@ st.markdown(
        INNER content box gets the solid themed card background. */
     div[data-testid="stDialog"] {{
         background-color: rgba(0, 0, 0, 0.55) !important;
-        animation: mg_backdrop_fade_in 0.25s ease-out;
+        animation: mg_backdrop_fade_in 0.4s ease-out;
     }}
     div[data-testid="stDialog"] > div {{
         background-color: {bg_card} !important;
-        animation: mg_modal_fade_in 0.25s ease-out;
+        animation: mg_modal_fade_in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
     }}
     @keyframes mg_backdrop_fade_in {{
         from {{ opacity: 0; }}
         to {{ opacity: 1; }}
     }}
     @keyframes mg_modal_fade_in {{
-        from {{ opacity: 0; transform: translateY(8px) scale(0.97); }}
+        from {{ opacity: 0; transform: translateY(28px) scale(0.9); }}
         to {{ opacity: 1; transform: translateY(0) scale(1); }}
     }}
     .consent-section {{
@@ -1111,11 +1111,22 @@ elif st.session_state.page == "Stream B":
 
     if "stream_b_result" not in st.session_state:
         st.session_state.stream_b_result = None
+    if "stream_b_uploader_version" not in st.session_state:
+        st.session_state.stream_b_uploader_version = 0
+
+    def clear_stream_b():
+        st.session_state.stream_b_result = None
+        # File uploaders can't be cleared by just resetting a variable —
+        # Streamlit only resets one when its widget key actually
+        # changes. Bumping this counter (used in the uploader's key
+        # below) forces a fresh, empty uploader widget on the next run.
+        st.session_state.stream_b_uploader_version += 1
 
     uploaded_file = st.file_uploader(
         "Upload health_data.csv",
         type=["csv"],
         help=f"Supports files with 800,000+ record entries, up to {MAX_UPLOAD_SIZE_MB}MB.",
+        key=f"stream_b_uploader_{st.session_state.stream_b_uploader_version}",
     )
 
     # File size validation, per spec. uploaded_file.size is in bytes.
@@ -1131,13 +1142,24 @@ elif st.session_state.page == "Stream B":
 
     st.write("")
 
-    if st.button(
-        "🔍 Scan & Scrub CSV",
-        type="primary",
-        use_container_width=True,
-        key="scrub_btn",
-        disabled=uploaded_file is None or file_too_large,
-    ):
+    btn_col1, btn_col2 = st.columns([2.4, 1])
+    with btn_col1:
+        scrub_clicked = st.button(
+            "🔍 Scan & Scrub CSV",
+            type="primary",
+            use_container_width=True,
+            key="scrub_btn",
+            disabled=uploaded_file is None or file_too_large,
+        )
+    with btn_col2:
+        st.button(
+            "🧹 Clear",
+            use_container_width=True,
+            key="clear_stream_b_btn",
+            on_click=clear_stream_b,
+        )
+
+    if scrub_clicked:
         with st.spinner("🔍 Scanning columns for PII…"):
             try:
                 df = pd.read_csv(uploaded_file)
