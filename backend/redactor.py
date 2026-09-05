@@ -57,7 +57,17 @@ def _build_analyzer_engine() -> AnalyzerEngine:
             })
             nlp_engine = provider.create_engine()
             return AnalyzerEngine(nlp_engine=nlp_engine)
-        except OSError as e:
+        except Exception as e:
+            # Deliberately broad, not just OSError: repeated failed
+            # install attempts on a read-only deployed filesystem can
+            # leave a model's package directory in a partial/corrupted
+            # state (pip errors out mid-extraction), which can fool
+            # is_package() into reporting the model as present when
+            # it's actually broken — and whatever failure that produces
+            # further down isn't guaranteed to surface as a plain
+            # OSError. Catching broadly here means any such failure
+            # still falls through to trying the next model in the
+            # preference list, instead of crashing the whole app.
             last_error = e
             continue
     raise RuntimeError(
