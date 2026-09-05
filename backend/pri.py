@@ -36,6 +36,9 @@ ENTITY_WEIGHTS = {
     "US_SSN": 40,
     "CREDIT_CARD": 35,
     "DATE_TIME": 8,
+    "PASSWORD": 45,             # highest weight — grants direct account access
+    "BANK_ACCOUNT_NUMBER": 38,
+    "ORGANIZATION": 15,         # backstop in case a name still occasionally gets misclassified here
 }
 DEFAULT_WEIGHT = 10
 MAX_SCORE = 100.0

@@ -107,26 +107,113 @@ PHONE_RECOGNIZER = PatternRecognizer(
 # spaCy's general-purpose NER model (the one behind Presidio's built-in
 # PERSON recognizer) is genuinely probabilistic — it can miss short
 # inputs, uncommon names, or names with no surrounding sentence context
-# to work with. This adds explicit backup patterns for the specific,
-# very common phrasing of someone introducing themselves — "my name is
-# X", "I'm X", "I am X", "call me X" — which won't catch every name in
-# every context, but reliably catches this one very common case that
-# spaCy sometimes misses. Each pattern uses a fixed-width lookbehind
-# (Python's re module requires that) so the match is just the name
-# itself, not the whole phrase — meaning the sentence structure survives
-# redaction (e.g. "my name is [PERSON]" rather than losing "my name is"
-# entirely).
+# to work with, and can also mislabel a real name as something else
+# entirely (e.g. ORGANIZATION) rather than just missing it. This adds
+# explicit backup patterns for the specific, very common phrasing of
+# someone introducing themselves — "my name is X", "I'm X", "I am X",
+# "call me X" — which won't catch every name in every context, but
+# reliably catches this one very common case. Each pattern uses a
+# fixed-width lookbehind (Python's re module requires that) so the
+# match is just the name itself, not the whole phrase — meaning the
+# sentence structure survives redaction (e.g. "my name is [PERSON]"
+# rather than losing "my name is" entirely).
+#
+# Scores here are set slightly ABOVE spaCy's typical default NER
+# confidence (~0.85) on purpose: when both a spaCy guess and one of
+# these patterns match the same span with different entity types,
+# Presidio keeps only the higher-scoring one. Without this, an
+# incorrect spaCy guess (e.g. tagging "Chelsea Estrada" as
+# ORGANIZATION instead of PERSON) could outrank our correct,
+# context-based match.
 NAME_INTRO_PATTERNS = [
-    Pattern(name="name_is_intro", regex=r"(?<=name is )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.8),
-    Pattern(name="im_intro", regex=r"(?<=I'm )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.75),
-    Pattern(name="i_am_intro", regex=r"(?<=I am )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.75),
-    Pattern(name="call_me_intro", regex=r"(?<=call me )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.75),
-    Pattern(name="this_is_intro", regex=r"(?<=[Tt]his is )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.7),
+    Pattern(name="name_is_intro", regex=r"(?<=name is )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.9),
+    Pattern(name="im_intro", regex=r"(?<=I'm )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
+    Pattern(name="i_am_intro", regex=r"(?<=I am )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
+    Pattern(name="call_me_intro", regex=r"(?<=call me )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
+    Pattern(name="this_is_intro", regex=r"(?<=[Tt]his is )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.86),
 ]
 
 NAME_INTRO_RECOGNIZER = PatternRecognizer(
     supported_entity="PERSON",
     patterns=NAME_INTRO_PATTERNS,
+)
+
+
+# ---------------------------------------------------------------------
+# US state abbreviations
+# ---------------------------------------------------------------------
+# spaCy's NER (especially the smaller model used in production —
+# see backend/redactor.py's model fallback) can misclassify a bare
+# two-letter state code (e.g. "NJ") as ORGANIZATION instead of
+# LOCATION. Rather than depend on the NER model's judgment call at
+# all for this specific, small, well-defined set of tokens, this
+# matches them directly. Case-SENSITIVE on purpose (no re.IGNORECASE):
+# state codes are conventionally written in full caps ("NJ", "CA"),
+# while common English words that happen to share two letters ("or",
+# "in", "me", "hi", "ok") are essentially never written in full caps
+# in ordinary sentence-case prose — keeping this case-sensitive is
+# what keeps it from flagging those constantly.
+_US_STATE_ABBREVIATIONS = [
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+    "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
+    "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+    "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+    "WI", "WY", "DC",
+]
+
+STATE_ABBREVIATION_PATTERN = Pattern(
+    name="us_state_abbreviation",
+    regex=r"\b(?:" + "|".join(_US_STATE_ABBREVIATIONS) + r")\b",
+    score=0.88,
+)
+
+STATE_ABBREVIATION_RECOGNIZER = PatternRecognizer(
+    supported_entity="LOCATION",
+    patterns=[STATE_ABBREVIATION_PATTERN],
+)
+
+
+# ---------------------------------------------------------------------
+# Passwords
+# ---------------------------------------------------------------------
+# Presidio has no built-in concept of "password" at all — it's not a
+# standard PII category the way an email or SSN is, so nothing was
+# ever going to catch one without an explicit recognizer for it. This
+# uses the same "catch it right after common introductory phrasing"
+# approach as the name patterns above: "password is X", "password: X".
+# The (?i) makes each pattern case-insensitive (matches "Password is",
+# "PASSWORD:", etc. too) — this doesn't affect the fixed-width
+# lookbehind requirement, since inline flags are zero-width themselves.
+PASSWORD_PATTERNS = [
+    Pattern(name="password_is_intro", regex=r"(?i)(?<=password is )\S+", score=0.9),
+    Pattern(name="password_colon_intro", regex=r"(?i)(?<=password:\s)\S+", score=0.9),
+]
+
+PASSWORD_RECOGNIZER = PatternRecognizer(
+    supported_entity="PASSWORD",
+    patterns=PASSWORD_PATTERNS,
+)
+
+
+# ---------------------------------------------------------------------
+# Bank account numbers
+# ---------------------------------------------------------------------
+# A bare digit string (e.g. a 9-digit number) can simultaneously match
+# several of Presidio's generic built-in recognizers at once (DATE_TIME,
+# US_PASSPORT, US_DRIVER_LICENSE all use fairly generic digit-count
+# patterns without strong disambiguation) — the number likely still
+# gets redacted either way, but under a confusing/wrong label. Explicit
+# context ("bank account number is X") is a strong, unambiguous signal
+# this pattern-matches directly, so it gets labeled correctly instead
+# of leaving it to whichever generic recognizer happens to win.
+BANK_ACCOUNT_PATTERNS = [
+    Pattern(name="bank_account_intro", regex=r"(?i)(?<=account number is )\d{4,17}", score=0.9),
+    Pattern(name="bank_account_colon_intro", regex=r"(?i)(?<=account number:\s)\d{4,17}", score=0.9),
+]
+
+BANK_ACCOUNT_RECOGNIZER = PatternRecognizer(
+    supported_entity="BANK_ACCOUNT_NUMBER",
+    patterns=BANK_ACCOUNT_PATTERNS,
 )
 
 
@@ -144,4 +231,7 @@ def get_custom_recognizers():
         TIMESTAMP_RECOGNIZER,
         PHONE_RECOGNIZER,
         NAME_INTRO_RECOGNIZER,
+        STATE_ABBREVIATION_RECOGNIZER,
+        PASSWORD_RECOGNIZER,
+        BANK_ACCOUNT_RECOGNIZER,
     ]
