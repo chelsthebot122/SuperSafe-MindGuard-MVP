@@ -6,6 +6,7 @@ header — see comments below for why).
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 
 from backend.redactor import redact_text, get_engines
@@ -28,8 +29,37 @@ st.set_page_config(
 if "page" not in st.session_state:
     st.session_state.page = "Home"
 
+# Theme defaults to the visitor's OS/browser dark-mode preference, not
+# a hardcoded value — Streamlit's Python backend has no direct way to
+# read that (it's browser-side information), so a tiny JS snippet
+# detects it once and reports back via a URL query param. The Light/
+# Dark buttons in the header still fully override this at any time —
+# this only decides what's shown before anyone's clicked either one.
 if "theme" not in st.session_state:
-    st.session_state.theme = "Light"
+    query_theme = st.query_params.get("theme")
+    if query_theme in ("light", "dark"):
+        st.session_state.theme = query_theme.capitalize()
+    else:
+        # Not detected yet on this page load — show a neutral default
+        # for this one render while the detection script (below) does
+        # its one-time redirect to attach the real value to the URL.
+        st.session_state.theme = "Light"
+        st.session_state.awaiting_theme_detection = True
+
+if st.session_state.get("awaiting_theme_detection"):
+    components.html(
+        """
+        <script>
+        const params = new URLSearchParams(window.top.location.search);
+        if (!params.has('theme')) {
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            params.set('theme', prefersDark ? 'dark' : 'light');
+            window.top.location.search = params.toString();
+        }
+        </script>
+        """,
+        height=0,
+    )
 
 # Consent gate state. This is intentionally stored in st.session_state
 # rather than a real browser cookie/localStorage — Streamlit's
@@ -738,6 +768,12 @@ def meter(label, value, color_strong, color_track_bg):
 # on 1.62, so you're covered).
 @st.dialog("Privacy Policy & Terms", width="large")
 def consent_dialog():
+    render_html(f"""<div style="text-align:center; margin-bottom:22px;">
+            <h2 style="margin:0; padding:0; font-weight:700; font-size:{fs(26)}; color:{text_main} !important; font-family:{FONT_DISPLAY} !important;">
+                🛡️ MindGuard
+            </h2>
+            <p style="margin:2px 0 0 0; font-size:{fs(13)}; color:{text_sub} !important;">Local Anonymization Engine</p>
+        </div>""")
     render_html(f"""
         <div class="consent-section">
             <h5>🔒 Privacy Policy</h5>
@@ -786,10 +822,16 @@ def consent_dialog():
 
 if not st.session_state.consent_given or st.session_state.show_terms_review:
     consent_dialog()
-    # Hard stop: nothing below this line renders while the gate is up,
-    # so Home/Stream A/Stream B and all processing features are
-    # genuinely unreachable — not just visually hidden behind the modal.
-    st.stop()
+    # No hard stop here anymore. Home renders BEHIND the modal (see
+    # below) instead of a blank screen, so first-time visitors see the
+    # actual app with the consent popup overlaid on top — not a
+    # separate, confusing empty page. Processing features are still
+    # fully blocked: forcing the page back to "Home" whenever consent
+    # is missing means the Stream A/B branches (the actual redaction
+    # code) simply never execute — Home itself has no data-processing
+    # capability at all, just two navigation buttons.
+    if not st.session_state.consent_given:
+        st.session_state.page = "Home"
 
 # Pre-load the NLP engine here, once, at page-open time — rather than
 # letting it lazily load the first time someone clicks "Process &
