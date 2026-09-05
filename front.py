@@ -8,7 +8,7 @@ header — see comments below for why).
 import streamlit as st
 import pandas as pd
 
-from backend.redactor import redact_text
+from backend.redactor import redact_text, get_engines
 from backend.pri import calculate_pri_reduction, calculate_csv_pri_reduction
 from backend.csv_scrubber import process_health_csv, MAX_UPLOAD_SIZE_MB, MAX_UPLOAD_SIZE_BYTES
 
@@ -790,6 +790,17 @@ if not st.session_state.consent_given or st.session_state.show_terms_review:
     # so Home/Stream A/Stream B and all processing features are
     # genuinely unreachable — not just visually hidden behind the modal.
     st.stop()
+
+# Pre-load the NLP engine here, once, at page-open time — rather than
+# letting it lazily load the first time someone clicks "Process &
+# Redact Data" mid-interaction (which is what caused Streamlit's own
+# raw cache-miss status text, e.g. "Running get_engines().", to flash
+# on screen unexpectedly). Since get_engines() is @st.cache_resource,
+# this genuinely only does real work once ever per deployment (the
+# very first visitor "warms" it for everyone after) — every call after
+# that returns instantly with no visible effect at all.
+with st.spinner("🛡️ Loading MindGuard's privacy engine…"):
+    get_engines()
 
 
 # ------------------------------------------------------------------
