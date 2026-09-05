@@ -3,6 +3,7 @@ pandas
 presidio-analyzer
 presidio-anonymizer
 spacy
+streamlit_js_eval
 
 # Direct wheel URL for the small spaCy English model — needed because
 # Streamlit Community Cloud only runs `pip install -r requirements.txt`

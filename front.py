@@ -6,8 +6,8 @@ header — see comments below for why).
 """
 
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
+from streamlit_js_eval import streamlit_js_eval
 
 from backend.redactor import redact_text, get_engines
 from backend.pri import calculate_pri_reduction, calculate_csv_pri_reduction
@@ -30,36 +30,36 @@ if "page" not in st.session_state:
     st.session_state.page = "Home"
 
 # Theme defaults to the visitor's OS/browser dark-mode preference, not
-# a hardcoded value — Streamlit's Python backend has no direct way to
-# read that (it's browser-side information), so a tiny JS snippet
-# detects it once and reports back via a URL query param. The Light/
-# Dark buttons in the header still fully override this at any time —
-# this only decides what's shown before anyone's clicked either one.
+# a hardcoded value. An earlier attempt at this used a JS snippet that
+# tried to redirect the page with the detected value attached to the
+# URL — that silently failed every time, because Streamlit's JS
+# components run inside a sandboxed iframe that's missing the
+# "allow-top-navigation" permission by design (a documented Streamlit
+# platform limitation, not a bug in that code). streamlit_js_eval is a
+# proper custom component that reports a JS value back to Python
+# through Streamlit's own supported channel instead of a raw browser
+# redirect, so it isn't affected by that restriction.
+#
+# Per that package's own documented limitation, it must be called
+# unconditionally at the top level every run (not nested inside an
+# if/else) — so it's called below regardless of whether detection has
+# already completed. The Light/Dark buttons in the header still fully
+# override this at any time; system_theme_applied just makes sure this
+# detection only ever sets the theme ONCE, so it can never overwrite a
+# manual choice on a later rerun.
 if "theme" not in st.session_state:
-    query_theme = st.query_params.get("theme")
-    if query_theme in ("light", "dark"):
-        st.session_state.theme = query_theme.capitalize()
-    else:
-        # Not detected yet on this page load — show a neutral default
-        # for this one render while the detection script (below) does
-        # its one-time redirect to attach the real value to the URL.
-        st.session_state.theme = "Light"
-        st.session_state.awaiting_theme_detection = True
+    st.session_state.theme = "Light"
+if "system_theme_applied" not in st.session_state:
+    st.session_state.system_theme_applied = False
 
-if st.session_state.get("awaiting_theme_detection"):
-    components.html(
-        """
-        <script>
-        const params = new URLSearchParams(window.top.location.search);
-        if (!params.has('theme')) {
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            params.set('theme', prefersDark ? 'dark' : 'light');
-            window.top.location.search = params.toString();
-        }
-        </script>
-        """,
-        height=0,
-    )
+_prefers_dark = streamlit_js_eval(
+    js_expressions="window.matchMedia('(prefers-color-scheme: dark)').matches",
+    key="system_theme_detect",
+)
+
+if not st.session_state.system_theme_applied and _prefers_dark is not None:
+    st.session_state.theme = "Dark" if _prefers_dark else "Light"
+    st.session_state.system_theme_applied = True
 
 # Consent gate state. This is intentionally stored in st.session_state
 # rather than a real browser cookie/localStorage — Streamlit's
@@ -80,7 +80,7 @@ if "show_terms_review" not in st.session_state:
 # genuinely subjective (what looks fine to one person can be too small
 # for another), so it's a real setting rather than something baked in.
 if "font_scale" not in st.session_state:
-    st.session_state.font_scale = 1.0
+    st.session_state.font_scale = 1.15  # defaults to "M" — S and L are still fully available via the buttons
 
 FONT_SIZE_STEPS = [
     ("S", 1.0, "font_size_btn_normal"),
@@ -659,21 +659,32 @@ st.markdown(
     }}
 
     /* ---------------- Consent gate ---------------- */
-    /* Streamlit's dialog modal renders in its own overlay and does NOT
-       automatically inherit .stApp's background — so without this,
-       the modal keeps whatever background Streamlit's native theme
-       gives it (often a fixed white), while our text colors are
-       theme-conditional (in Dark mode, text_main is a near-white color
-       meant to sit on our dark bg_card, not on that default white).
-       That mismatch is exactly what would make text unreadable in one
-       mode. Forcing the modal's own background to bg_card guarantees
-       it's always the correct pairing for text_main/text_sub in
-       whichever theme is currently active. */
+    /* Streamlit's dialog modal renders as TWO layers: a full-viewport
+       overlay/backdrop, and the actual content box inside it. The
+       previous version forced bg_card (a SOLID, opaque color) onto
+       BOTH layers — which meant the full-viewport backdrop layer
+       became a solid opaque wall (e.g. solid white in Light mode),
+       completely hiding the homepage behind it. That's what made this
+       look like a separate blank page instead of a popup over the
+       dashboard. Fixed by giving each layer a different treatment:
+       the outer backdrop gets a semi-transparent dark scrim (so Home
+       is dimly visible behind it, like a normal modal), and only the
+       INNER content box gets the solid themed card background. */
     div[data-testid="stDialog"] {{
-        background-color: {bg_card} !important;
+        background-color: rgba(0, 0, 0, 0.55) !important;
+        animation: mg_backdrop_fade_in 0.25s ease-out;
     }}
     div[data-testid="stDialog"] > div {{
         background-color: {bg_card} !important;
+        animation: mg_modal_fade_in 0.25s ease-out;
+    }}
+    @keyframes mg_backdrop_fade_in {{
+        from {{ opacity: 0; }}
+        to {{ opacity: 1; }}
+    }}
+    @keyframes mg_modal_fade_in {{
+        from {{ opacity: 0; transform: translateY(8px) scale(0.97); }}
+        to {{ opacity: 1; transform: translateY(0) scale(1); }}
     }}
     .consent-section {{
         margin-bottom: 18px;
@@ -817,21 +828,17 @@ def consent_dialog():
     ):
         st.session_state.consent_given = True
         st.session_state.show_terms_review = False
+        # Carry them through to whatever they were actually trying to
+        # reach (e.g. Stream A) instead of leaving them stuck on Home
+        # — Home is only ever a temporary holding page while the modal
+        # is up, not where accepting should actually land them.
+        if st.session_state.get("pending_page"):
+            st.session_state.page = st.session_state.pending_page
+            st.session_state.pending_page = None
         st.rerun()
 
 
-if not st.session_state.consent_given or st.session_state.show_terms_review:
-    consent_dialog()
-    # No hard stop here anymore. Home renders BEHIND the modal (see
-    # below) instead of a blank screen, so first-time visitors see the
-    # actual app with the consent popup overlaid on top — not a
-    # separate, confusing empty page. Processing features are still
-    # fully blocked: forcing the page back to "Home" whenever consent
-    # is missing means the Stream A/B branches (the actual redaction
-    # code) simply never execute — Home itself has no data-processing
-    # capability at all, just two navigation buttons.
-    if not st.session_state.consent_given:
-        st.session_state.page = "Home"
+
 
 # Pre-load the NLP engine here, once, at page-open time — rather than
 # letting it lazily load the first time someone clicks "Process &
@@ -894,6 +901,27 @@ with st.container(key="app_header"):
 # ------------------------------------------------------------------
 # PAGE 1: HOME
 # ------------------------------------------------------------------
+# The consent gate no longer fires the instant the page loads — it
+# only triggers the moment someone actually tries to reach Stream A or
+# B (a processing feature), or explicitly asks to review it via the
+# footer link. That means the homepage itself is always freely
+# browsable with nothing blocking it, which is both a more expected
+# modal pattern and the actual reason the popup used to feel like "a
+# whole separate page" (it was covering a page that hadn't even
+# finished feeling like a real page yet). Requesting a processing
+# feature without consent bounces back to Home — Stream A/B's actual
+# redaction code never executes either way.
+if st.session_state.show_terms_review or (
+    st.session_state.page in ("Stream A", "Stream B") and not st.session_state.consent_given
+):
+    if not st.session_state.consent_given:
+        # Remember where they were actually trying to go, so accepting
+        # can carry them straight through to it instead of leaving them
+        # stranded on Home (see the Accept button's handler above).
+        st.session_state.pending_page = st.session_state.page
+        st.session_state.page = "Home"
+    consent_dialog()
+
 if st.session_state.page == "Home":
     render_html(f"""<h2 style="text-align:center; color:{text_main}; margin-bottom:6px; font-weight:700;
                        font-family:{FONT_BODY}; letter-spacing:normal;">
