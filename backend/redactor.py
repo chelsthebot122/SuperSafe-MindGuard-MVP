@@ -136,6 +136,13 @@ def _is_false_positive(entity, text: str) -> bool:
             # general backstop against other short misfires beyond the
             # curated word list above.
             return True
+        if not matched[0].isupper():
+            # Real names are essentially never written in all-lowercase
+            # in properly-cased text — this catches phrase-level
+            # misfires like "going to" getting tagged PERSON, which the
+            # word-list and length checks above don't cover since it's
+            # neither a single short word nor on the curated list.
+            return True
 
     return False
 

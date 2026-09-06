@@ -174,6 +174,29 @@ STATE_ABBREVIATION_RECOGNIZER = PatternRecognizer(
 
 
 # ---------------------------------------------------------------------
+# City names immediately before a state abbreviation
+# ---------------------------------------------------------------------
+# Some city names (Austin, Madison, Charlotte...) are ALSO extremely
+# common first names — a genuinely hard, well-documented NER ambiguity
+# that no general-purpose model resolves perfectly. But "Austin, TX" or
+# "Reno, NV" carries strong context we can use directly: a capitalized
+# word immediately followed by ", <state abbreviation>" is a city, not
+# a person, essentially every time this exact pattern appears. Uses a
+# lookahead (not a lookbehind, so no fixed-width restriction applies)
+# to match just the city name itself.
+CITY_BEFORE_STATE_PATTERN = Pattern(
+    name="city_before_state_abbreviation",
+    regex=r"[A-Z][a-zA-Z]+(?=,\s(?:" + "|".join(_US_STATE_ABBREVIATIONS) + r")\b)",
+    score=0.9,
+)
+
+CITY_BEFORE_STATE_RECOGNIZER = PatternRecognizer(
+    supported_entity="LOCATION",
+    patterns=[CITY_BEFORE_STATE_PATTERN],
+)
+
+
+# ---------------------------------------------------------------------
 # Passwords
 # ---------------------------------------------------------------------
 # Presidio has no built-in concept of "password" at all — it's not a
@@ -232,6 +255,7 @@ def get_custom_recognizers():
         PHONE_RECOGNIZER,
         NAME_INTRO_RECOGNIZER,
         STATE_ABBREVIATION_RECOGNIZER,
+        CITY_BEFORE_STATE_RECOGNIZER,
         PASSWORD_RECOGNIZER,
         BANK_ACCOUNT_RECOGNIZER,
     ]
