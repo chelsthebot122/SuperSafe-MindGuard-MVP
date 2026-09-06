@@ -131,6 +131,16 @@ NAME_INTRO_PATTERNS = [
     Pattern(name="i_am_intro", regex=r"(?<=I am )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
     Pattern(name="call_me_intro", regex=r"(?<=call me )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
     Pattern(name="this_is_intro", regex=r"(?<=[Tt]his is )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.86),
+    # "it's X" deliberately allows a lowercase name too (e.g. "hey it's
+    # alex") — casual texting/chat is often fully lowercase, and a
+    # dedicated phrase-anchored pattern like this gives enough context
+    # to catch it safely (see the paired exemption in redactor.py's
+    # false-positive filter, which only allows a lowercase PERSON match
+    # through when it's both a single word AND immediately preceded by
+    # one of these exact intro phrases — that combination is what keeps
+    # this from reopening unrelated lowercase false positives like
+    # "going to" getting caught elsewhere in a sentence).
+    Pattern(name="its_intro", regex=r"(?<=it's )[A-Za-z]+", score=0.85),
 ]
 
 NAME_INTRO_RECOGNIZER = PatternRecognizer(
@@ -219,24 +229,29 @@ PASSWORD_RECOGNIZER = PatternRecognizer(
 
 
 # ---------------------------------------------------------------------
-# Bank account numbers
+# Account numbers
 # ---------------------------------------------------------------------
 # A bare digit string (e.g. a 9-digit number) can simultaneously match
 # several of Presidio's generic built-in recognizers at once (DATE_TIME,
 # US_PASSPORT, US_DRIVER_LICENSE all use fairly generic digit-count
 # patterns without strong disambiguation) — the number likely still
 # gets redacted either way, but under a confusing/wrong label. Explicit
-# context ("bank account number is X") is a strong, unambiguous signal
-# this pattern-matches directly, so it gets labeled correctly instead
-# of leaving it to whichever generic recognizer happens to win.
-BANK_ACCOUNT_PATTERNS = [
-    Pattern(name="bank_account_intro", regex=r"(?i)(?<=account number is )\d{4,17}", score=0.9),
-    Pattern(name="bank_account_colon_intro", regex=r"(?i)(?<=account number:\s)\d{4,17}", score=0.9),
+# context ("account number is X") is a strong, unambiguous signal this
+# pattern-matches directly, so it gets labeled correctly instead of
+# leaving it to whichever generic recognizer happens to win. Labeled
+# generically as ACCOUNT_NUMBER rather than assuming it's specifically
+# a BANK account — the phrase "account number" alone doesn't say what
+# kind of account it is (could be a membership, utility, subscription
+# account, etc.), so labeling it "bank" specifically would be an
+# assumption the input never actually supports.
+ACCOUNT_NUMBER_PATTERNS = [
+    Pattern(name="account_number_intro", regex=r"(?i)(?<=account number is )\d{4,17}", score=0.9),
+    Pattern(name="account_number_colon_intro", regex=r"(?i)(?<=account number:\s)\d{4,17}", score=0.9),
 ]
 
-BANK_ACCOUNT_RECOGNIZER = PatternRecognizer(
-    supported_entity="BANK_ACCOUNT_NUMBER",
-    patterns=BANK_ACCOUNT_PATTERNS,
+ACCOUNT_NUMBER_RECOGNIZER = PatternRecognizer(
+    supported_entity="ACCOUNT_NUMBER",
+    patterns=ACCOUNT_NUMBER_PATTERNS,
 )
 
 
@@ -257,5 +272,5 @@ def get_custom_recognizers():
         STATE_ABBREVIATION_RECOGNIZER,
         CITY_BEFORE_STATE_RECOGNIZER,
         PASSWORD_RECOGNIZER,
-        BANK_ACCOUNT_RECOGNIZER,
+        ACCOUNT_NUMBER_RECOGNIZER,
     ]

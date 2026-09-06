@@ -112,6 +112,20 @@ PERSON_FALSE_POSITIVE_WORDS = {
 
 _HAS_DIGIT = re.compile(r"\d")
 
+# Phrases that justify allowing a LOWERCASE PERSON match through (see
+# the exemption below) — these are the exact same intro phrases the
+# custom name-introduction patterns in recognizers.py key off of, so a
+# lowercase name is only ever allowed through when it's backed by this
+# specific, deliberate context.
+_NAME_INTRO_PRECEDING_PHRASES = [
+    "name is ", "i'm ", "i am ", "call me ", "this is ", "it's ",
+]
+
+
+def _preceded_by_name_intro(text: str, start: int) -> bool:
+    prefix = text[:start].lower()
+    return any(prefix.endswith(phrase) for phrase in _NAME_INTRO_PRECEDING_PHRASES)
+
 
 def _is_false_positive(entity, text: str) -> bool:
     matched = text[entity.start:entity.end].strip()
@@ -139,10 +153,19 @@ def _is_false_positive(entity, text: str) -> bool:
         if not matched[0].isupper():
             # Real names are essentially never written in all-lowercase
             # in properly-cased text — this catches phrase-level
-            # misfires like "going to" getting tagged PERSON, which the
-            # word-list and length checks above don't cover since it's
-            # neither a single short word nor on the curated list.
-            return True
+            # misfires like "going to" getting tagged PERSON. But a
+            # genuinely casual/lowercase message ("hey it's alex") is
+            # real too, so this isn't a blanket rejection: a lowercase
+            # match is still allowed through if it's BOTH a single
+            # word (no internal space — "going to" has one, "alex"
+            # doesn't) AND immediately preceded by one of the exact
+            # intro phrases above. That combination is deliberately
+            # narrow — it's what lets "it's alex" through while still
+            # catching "going to" right after "I'm " in the same
+            # sentence, since "going to" fails the single-word check.
+            is_single_word = " " not in matched
+            if not (is_single_word and _preceded_by_name_intro(text, entity.start)):
+                return True
 
     return False
 
