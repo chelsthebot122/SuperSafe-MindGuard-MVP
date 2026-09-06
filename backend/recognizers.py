@@ -126,21 +126,31 @@ PHONE_RECOGNIZER = PatternRecognizer(
 # ORGANIZATION instead of PERSON) could outrank our correct,
 # context-based match.
 NAME_INTRO_PATTERNS = [
-    Pattern(name="name_is_intro", regex=r"(?<=name is )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.9),
-    Pattern(name="im_intro", regex=r"(?<=I'm )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
-    Pattern(name="i_am_intro", regex=r"(?<=I am )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
-    Pattern(name="call_me_intro", regex=r"(?<=call me )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
-    Pattern(name="this_is_intro", regex=r"(?<=[Tt]his is )[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.86),
-    # "it's X" deliberately allows a lowercase name too (e.g. "hey it's
-    # alex") — casual texting/chat is often fully lowercase, and a
-    # dedicated phrase-anchored pattern like this gives enough context
-    # to catch it safely (see the paired exemption in redactor.py's
-    # false-positive filter, which only allows a lowercase PERSON match
-    # through when it's both a single word AND immediately preceded by
-    # one of these exact intro phrases — that combination is what keeps
-    # this from reopening unrelated lowercase false positives like
-    # "going to" getting caught elsewhere in a sentence).
-    Pattern(name="its_intro", regex=r"(?<=it's )[A-Za-z]+", score=0.85),
+    # Each lookbehind uses (?<=(?i:...)) — case-insensitivity applies
+    # ONLY inside the zero-width lookbehind itself (so "Name is",
+    # "NAME IS", and "name is" all match equally), while the actual
+    # captured name portion outside it stays case-sensitive and still
+    # requires real capitalization. Without this, a phrase at the very
+    # start of a sentence ("It's Sarah...") would fail to match at all,
+    # since the literal lowercase text "it's " wouldn't be found where
+    # the sentence actually has "It's ".
+    Pattern(name="name_is_intro", regex=r"(?<=(?i:name is ))[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.9),
+    Pattern(name="im_intro", regex=r"(?<=(?i:I'm ))[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
+    Pattern(name="i_am_intro", regex=r"(?<=(?i:I am ))[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
+    Pattern(name="call_me_intro", regex=r"(?<=(?i:call me ))[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.88),
+    Pattern(name="this_is_intro", regex=r"(?<=(?i:this is ))[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.86),
+    # "it's X" REQUIRES capitalization, same as every pattern above —
+    # unlike "my name is X" (almost always followed by an actual
+    # name), "it's" is used constantly as an ordinary sentence filler
+    # ("it's raining", "it's fine", "it's cold"), far more often than
+    # as a name introduction. An earlier version of this pattern
+    # allowed lowercase through and it correctly caught "hey it's
+    # alex" — but it also caught "raining"/"going"/"fine" as PERSON in
+    # completely ordinary sentences, which is a much worse problem
+    # than the narrow benefit. Requiring capitalization sacrifices
+    # catching a genuinely lowercase-typed name after "it's"
+    # specifically, which is the right tradeoff here.
+    Pattern(name="its_intro", regex=r"(?<=(?i:it's ))[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", score=0.85),
 ]
 
 NAME_INTRO_RECOGNIZER = PatternRecognizer(
