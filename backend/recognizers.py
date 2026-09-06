@@ -14,7 +14,23 @@ that need catching. Each one is intentionally small and single-purpose
 so you can test/tune them independently.
 """
 
+import re
+
 from presidio_analyzer import Pattern, PatternRecognizer
+
+# Presidio's PatternRecognizer defaults to re.DOTALL | re.MULTILINE |
+# re.IGNORECASE for EVERY pattern it compiles — regardless of what's
+# actually written in the regex string. This is a real, documented
+# Presidio default (not something we opted into), and it's exactly why
+# a state-abbreviation pattern that only lists uppercase codes like
+# "IN"/"OR"/"ME" was still matching ordinary lowercase words "in"/
+# "or"/"me" anywhere they appeared. Passing this explicitly to every
+# PatternRecognizer below restores real case-sensitivity as the
+# baseline; the few places case-insensitivity is actually wanted (the
+# name-introduction phrases, "password is", "account number is") use
+# their own deliberate (?i:...) scoped markers instead, so those still
+# work exactly as intended.
+_CASE_SENSITIVE_FLAGS = re.DOTALL | re.MULTILINE
 
 
 # ---------------------------------------------------------------------
@@ -37,6 +53,7 @@ DEVICE_ID_RECOGNIZER = PatternRecognizer(
     supported_entity="DEVICE_ID",
     patterns=[DEVICE_STRING_PATTERN],
     context=["device", "sourceName", "hardware"],
+    global_regex_flags=_CASE_SENSITIVE_FLAGS,
 )
 
 
@@ -54,6 +71,7 @@ UUID_PATTERN = Pattern(
 UUID_RECOGNIZER = PatternRecognizer(
     supported_entity="DEVICE_ID",
     patterns=[UUID_PATTERN],
+    global_regex_flags=_CASE_SENSITIVE_FLAGS,
 )
 
 
@@ -74,6 +92,7 @@ FINE_TIMESTAMP_PATTERN = Pattern(
 TIMESTAMP_RECOGNIZER = PatternRecognizer(
     supported_entity="FINE_TIMESTAMP",
     patterns=[FINE_TIMESTAMP_PATTERN],
+    global_regex_flags=_CASE_SENSITIVE_FLAGS,
 )
 
 
@@ -98,6 +117,7 @@ PHONE_PATTERN = Pattern(
 PHONE_RECOGNIZER = PatternRecognizer(
     supported_entity="PHONE_NUMBER",
     patterns=[PHONE_PATTERN],
+    global_regex_flags=_CASE_SENSITIVE_FLAGS,
 )
 
 
@@ -156,6 +176,7 @@ NAME_INTRO_PATTERNS = [
 NAME_INTRO_RECOGNIZER = PatternRecognizer(
     supported_entity="PERSON",
     patterns=NAME_INTRO_PATTERNS,
+    global_regex_flags=_CASE_SENSITIVE_FLAGS,
 )
 
 
@@ -190,6 +211,7 @@ STATE_ABBREVIATION_PATTERN = Pattern(
 STATE_ABBREVIATION_RECOGNIZER = PatternRecognizer(
     supported_entity="LOCATION",
     patterns=[STATE_ABBREVIATION_PATTERN],
+    global_regex_flags=_CASE_SENSITIVE_FLAGS,
 )
 
 
@@ -213,6 +235,7 @@ CITY_BEFORE_STATE_PATTERN = Pattern(
 CITY_BEFORE_STATE_RECOGNIZER = PatternRecognizer(
     supported_entity="LOCATION",
     patterns=[CITY_BEFORE_STATE_PATTERN],
+    global_regex_flags=_CASE_SENSITIVE_FLAGS,
 )
 
 
@@ -235,6 +258,7 @@ PASSWORD_PATTERNS = [
 PASSWORD_RECOGNIZER = PatternRecognizer(
     supported_entity="PASSWORD",
     patterns=PASSWORD_PATTERNS,
+    global_regex_flags=_CASE_SENSITIVE_FLAGS,
 )
 
 
@@ -262,6 +286,7 @@ ACCOUNT_NUMBER_PATTERNS = [
 ACCOUNT_NUMBER_RECOGNIZER = PatternRecognizer(
     supported_entity="ACCOUNT_NUMBER",
     patterns=ACCOUNT_NUMBER_PATTERNS,
+    global_regex_flags=_CASE_SENSITIVE_FLAGS,
 )
 
 
